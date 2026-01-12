@@ -74,8 +74,8 @@ seo-causal-test-simulator/
 
 ```bash
 # Clone repository
-git clone <repo-url>
-cd seo-causal-test-simulator
+git clone https://github.com/bobbaninja/digital-marketing-experiment-simulator.git
+cd digital-marketing-experiment-simulator
 
 # Install dependencies
 pip install -r requirements.txt
@@ -256,33 +256,6 @@ All metrics have been validated across 10 real experiment scenarios:
 
 ---
 
-## Interview Talking Points
-
-### "Tell us about your causal inference approach"
-*"This simulator uses CausalImpact, which implements Bayesian Structural Time Series analysis. It's superior to simple A/B t-tests for SEO because it properly handles:*
-- *Time-series autocorrelation in daily data*
-- *Trend and seasonality components*
-- *Synthetic control using highly-correlated test markets*
-
-*The result is more accurate effect estimates with smaller required sample sizes."*
-
-### "How do you handle statistical rigor?"
-*"I require BOTH effect size (>5% to ship) AND statistical significance (p<0.05) to prevent false positives. The 'Continue' threshold (>2%, p<0.10) catches promising experiments worth more testing. This prevents both Type I errors (false wins) and Type II errors (missed opportunities)."*
-
-### "What's your experimentation velocity?"
-*"The batch runner enables testing 10+ initiatives per week. Each test is properly sized through power analysis, with decision frameworks that minimize decision-making time. Results are automatically exported to PDF/CSV for stakeholder communication."*
-
-### "How do you know your results are trustworthy?"
-*"I built comprehensive validity checks:*
-- *Pre-period trend alignment (correlation ≥0.85)*
-- *Placebo tests (fake interventions in pre-period)*
-- *Drop-one-control sensitivity analysis*
-- *Outlier detection*
-
-*All experiments are audited in DuckDB with full reproducibility."*
-
----
-
 ## Development Status
 
 **✅ Complete (Phase 1-4):**
@@ -299,8 +272,7 @@ All metrics have been validated across 10 real experiment scenarios:
 - Batch runner for multi-test execution
 - Comprehensive validation testing (10 scenarios)
 
-**🎯 Status:** Production-Ready  
-**Optimized For:** Job applications, portfolio demonstration, technical interviews
+**🎯 Status:** Production-Ready
 
 ---
 
