@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+from scipy.stats import norm
 from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -39,8 +40,8 @@ predicted_post = inferences['preds'].iloc[post_start:].values
 pointwise_effects = actual_post - predicted_post
 point_est = np.nansum(pointwise_effects)
 avg_daily_effect = np.nanmean(pointwise_effects)
-post_mean = actual_post.mean()
-post_sum = actual_post.sum()
+post_mean = np.nanmean(actual_post)
+post_sum = np.nansum(actual_post)  # FIXED: Use nansum to ignore nan values
 pct_effect = (point_est / post_sum * 100) if post_sum != 0 else 0
 
 # Statistical significance
@@ -49,7 +50,8 @@ post_data = data[data['period'] == 'post']
 pre_mean = data['test_market'].iloc[:90].mean()
 effect_se = np.nanstd(pointwise_effects) / np.sqrt(len(pointwise_effects))
 z_score = point_est / effect_se if effect_se > 0 else 0
-p_value = 2 * (1 - np.exp(-abs(z_score) / np.sqrt(2 * np.pi)))
+# FIXED: Use proper normal CDF for p-value calculation
+p_value = 2 * (1 - norm.cdf(abs(z_score)))
 
 # Lightweight BI assumptions to show business-facing KPIs
 assumed_conv_rate = 0.03  # 3% conversion rate
@@ -106,10 +108,14 @@ with col3:
 
 with col4:
     # Decision based on effect size and significance
-    if abs(pct_effect) > 5 and p_value < 0.05:
+    # IMPORTANT: Negative effects that are significant should be "Don't Ship" (harmful)
+    if pct_effect < 0 and p_value < 0.10:
+        decision = "❌ Don't Ship"
+        color = "red"
+    elif pct_effect > 5 and p_value < 0.05:
         decision = "✅ Ship"
         color = "green"
-    elif abs(pct_effect) > 2 and p_value < 0.10:
+    elif pct_effect > 2 and p_value < 0.10:
         decision = "🔄 Continue"
         color = "blue"
     else:
@@ -125,8 +131,96 @@ with col4:
 st.markdown("---")
 
 # ==============================================================================
-# SECTION A1: BI SNAPSHOT (MOCK)
+# DEBUG: SHOW DECISION LOGIC VALUES
 # ==============================================================================
+
+with st.expander("🔍 Debug: Decision Logic Breakdown", expanded=False):
+    st.markdown("### Why did we get this recommendation?")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Current Values:**")
+        st.write(f"- Effect %: **{pct_effect:.2f}%** (abs: {abs(pct_effect):.2f}%)")
+        st.write(f"- P-Value: **{p_value:.6f}**")
+        st.write(f"- Z-Score: **{z_score:.2f}**")
+        st.write(f"- Effect (sessions): **{point_est:+.0f}**")
+        st.write(f"- Standard Error: **{effect_se:.2f}**")
+    
+    with col2:
+        st.markdown("**Decision Thresholds:**")
+        
+        # Check if negative effect first
+        if pct_effect < 0:
+            st.write("**⚠️ Negative Effect Detected:**")
+            st.write(f"  - Effect is negative? {pct_effect < 0} (yours: {pct_effect:.2f}%)")
+            st.write(f"  - P-Value < 0.10? {p_value < 0.10} (yours: {p_value:.6f})")
+            st.write("  → **Significant negative effect = Don't Ship**")
+        else:
+            st.write("**✅ Ship** requires:")
+            st.write(f"  - Effect % > 5%? {pct_effect > 5} (yours: {pct_effect:.2f}%)")
+            st.write(f"  - P-Value < 0.05? {p_value < 0.05} (yours: {p_value:.6f})")
+            st.write("")
+            st.write("**🔄 Continue** requires:")
+            st.write(f"  - Effect % > 2%? {pct_effect > 2} (yours: {pct_effect:.2f}%)")
+            st.write(f"  - P-Value < 0.10? {p_value < 0.10} (yours: {p_value:.6f})")
+    
+    st.markdown("---")
+    st.markdown(f"**Final Decision: {decision}**")
+    
+    if decision == "❌ Don't Ship":
+        if pct_effect < 0 and p_value < 0.10:
+            st.error(f"""
+            **Why "Don't Ship"? NEGATIVE IMPACT!**
+            
+            Your experiment shows a **statistically significant negative effect**:
+            - Effect: **{pct_effect:.2f}%** (decrease in sessions)
+            - P-value: **{p_value:.6f}** (highly significant)
+            
+            **This change is actively harming performance!**
+            - The test is causing a measurable drop in traffic/conversions
+            - The negative effect is statistically significant
+            - Rolling this out would hurt your business
+            
+            **Recommendation:** Immediately stop the test and revert changes.
+            """)
+        else:
+            st.warning(f"""
+            **Why "Don't Ship"?**
+            
+            Your experiment didn't meet the minimum thresholds:
+            - Either your effect size is too small (< 2%)
+            - Or your p-value is too high (≥ 0.10)
+            - This means there isn't enough statistical evidence or business impact to justify shipping.
+            
+            **What to do:**
+            - If effect is very small: The change might not be worth implementing
+            - If p-value is high: Try running the test longer for more data
+            - Check the validity diagnostics on Page 4 for data quality issues
+            """)
+    elif decision == "🔄 Continue":
+        st.info(f"""
+        **Why "Continue"?**
+        
+        Your experiment shows promising results but needs more validation:
+        - Effect: {abs(pct_effect):.2f}% (between 2-5%)
+        - P-value: {p_value:.4f} (between 0.05-0.10)
+        
+        **Recommendation:** Run the test longer or expand to more markets for confirmation.
+        """)
+    else:
+        st.success(f"""
+        **Why "Ship"?**
+        
+        Your experiment meets both criteria:
+        - Effect: {abs(pct_effect):.2f}% (> 5%) ✓
+        - P-value: {p_value:.4f} (< 0.05) ✓
+        
+        **This is a clear winner!** Safe to implement.
+        """)
+
+st.markdown("---")
+
 
 st.subheader("📊 BI Snapshot (Mock Assumptions)")
 
