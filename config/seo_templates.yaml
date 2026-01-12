@@ -1,0 +1,123 @@
+templates:
+  - id: 1
+    name: "Meta Title Refresh"
+    description: "Optimize title tags to improve organic CTR and click volume"
+    primary_metric: "Organic Clicks"
+    metric_key: "clicks"
+    mde_min: 5
+    mde_max: 10
+    default_mde: 7
+    unit_of_analysis: "page_group"
+    recommended_method: "synthetic_control"
+    common_confounders:
+      - "Algorithm updates"
+      - "Seasonal search trends"
+      - "Competitor activity"
+    guardrails:
+      - metric: "bounce_rate"
+        direction: "minimize"
+        threshold: -5
+      - metric: "avg_session_duration"
+        direction: "maximize"
+        threshold: 0
+
+  - id: 2
+    name: "Internal Linking Block"
+    description: "Improve site structure with strategic internal links to boost session flow"
+    primary_metric: "Sessions"
+    metric_key: "sessions"
+    mde_min: 8
+    mde_max: 12
+    default_mde: 10
+    unit_of_analysis: "page_group"
+    recommended_method: "synthetic_control"
+    common_confounders:
+      - "Algorithm updates"
+      - "Seasonal traffic patterns"
+      - "Competing ranking changes"
+    guardrails:
+      - metric: "pages_per_session"
+        direction: "maximize"
+        threshold: 0
+      - metric: "conversion_rate"
+        direction: "maximize"
+        threshold: 0
+
+  - id: 3
+    name: "Schema Markup"
+    description: "Add structured data to improve rich results and click-through rate"
+    primary_metric: "Rich Result CTR"
+    metric_key: "rich_result_ctr"
+    mde_min: 15
+    mde_max: 20
+    default_mde: 18
+    unit_of_analysis: "page_group"
+    recommended_method: "synthetic_control"
+    common_confounders:
+      - "Google Search algorithm updates"
+      - "Indexing crawl changes"
+      - "Competitor schema adoption"
+    guardrails:
+      - metric: "impressions"
+        direction: "maximize"
+        threshold: 0
+
+  - id: 4
+    name: "Content Refresh"
+    description: "Update existing content to improve relevance and organic traffic"
+    primary_metric: "Organic Impressions"
+    metric_key: "impressions"
+    mde_min: 10
+    mde_max: 15
+    default_mde: 12
+    unit_of_analysis: "page_group"
+    recommended_method: "synthetic_control"
+    common_confounders:
+      - "Core Web Vitals update"
+      - "Seasonal content demand"
+      - "SERP feature changes"
+    guardrails:
+      - metric: "avg_position"
+        direction: "minimize"
+        threshold: -1
+
+  - id: 5
+    name: "Page Speed Optimization"
+    description: "Improve Core Web Vitals to reduce bounce rate and improve rankings"
+    primary_metric: "Bounce Rate Reduction"
+    metric_key: "bounce_rate"
+    mde_min: -15
+    mde_max: -10
+    default_mde: -12
+    unit_of_analysis: "page_group"
+    recommended_method: "synthetic_control"
+    common_confounders:
+      - "Algorithm updates"
+      - "Seasonal user behavior"
+      - "Mobile traffic shifts"
+    guardrails:
+      - metric: "sessions"
+        direction: "maximize"
+        threshold: 0
+      - metric: "conversion_rate"
+        direction: "maximize"
+        threshold: 0
+
+  - id: 6
+    name: "Indexing Cleanup"
+    description: "Remove low-quality pages and improve crawl efficiency"
+    primary_metric: "Indexed Pages"
+    metric_key: "indexed_pages"
+    mde_min: 5
+    mde_max: 8
+    default_mde: 6
+    unit_of_analysis: "geo_market"
+    recommended_method: "synthetic_control"
+    common_confounders:
+      - "Crawl budget fluctuations"
+      - "Robots.txt changes"
+      - "Canonicalization issues"
+    guardrails:
+      - metric: "avg_position"
+        direction: "minimize"
+        threshold: -0.5
