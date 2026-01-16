@@ -1,6 +1,6 @@
 # SEO Causal Test Simulator
 
-A professional-grade **Streamlit application** demonstrating causal inference expertise for SEO experimentation. Designed to showcase statistical rigor, technical depth, and practical business acumen for data-driven marketing roles.
+A **Streamlit application** demonstrating causal inference expertise for SEO experimentation. Designed to showcase statistical rigor, technical depth, and practical business acumen for data-driven marketing roles.
 
 ---
 
