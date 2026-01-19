@@ -8,14 +8,15 @@ import time
 
 st.set_page_config(page_title="Batch Runner", layout="wide")
 
-st.title("🚀 Batch Runner - Multiple Experiments")
+st.title("🚀 Batch Runner - Unavailable")
+st.warning("Batch Runner is currently disabled. Please return to the main flow.")
 
-st.markdown("""
-Run multiple independent experiments to test robustness and compare results across different 
-test/control market pairs and configurations.
-""")
+col_back, _ = st.columns(2)
+with col_back:
+    if st.button("← Back to Home", use_container_width=True):
+        st.switch_page("Home.py")
 
-st.markdown("---")
+st.stop()
 
 # ==============================================================================
 # SECTION A: BATCH CONFIGURATION

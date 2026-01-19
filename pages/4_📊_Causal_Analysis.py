@@ -21,7 +21,11 @@ data = st.session_state['simulation_data']
 metadata = st.session_state['simulation_metadata']
 template = st.session_state['selected_template']
 
-st.markdown(f"**Template:** {template['name']} | **Test:** {st.session_state['test_market']} | **Control:** {st.session_state['control_market']}")
+# Check if synthetic control was used
+use_synthetic = st.session_state.get('synthetic_weights') is not None
+control_label = "Synthetic Control" if use_synthetic else st.session_state['control_market']
+
+st.markdown(f"**Template:** {template['name']} | **Test:** {st.session_state['test_market']} | **Control:** {control_label}")
 st.markdown("---")
 
 # ==============================================================================

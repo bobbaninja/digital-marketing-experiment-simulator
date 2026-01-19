@@ -37,7 +37,7 @@ def main():
     st.markdown("""
     ## Welcome to the SEO Causal Testing Simulator
     
-    A professional-grade platform for designing, executing, and validating SEO incrementality tests
+    A simulation platform for designing, executing, and validating SEO incrementality tests
     using **synthetic control**, **matched markets**, and **causal inference** methodologies.
     
     ### What You Can Do

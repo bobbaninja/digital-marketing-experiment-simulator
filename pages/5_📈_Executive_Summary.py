@@ -31,6 +31,8 @@ metadata = st.session_state['simulation_metadata']
 template = st.session_state['selected_template']
 test_market = st.session_state['test_market']
 control_market = st.session_state['control_market']
+use_synthetic = st.session_state.get('synthetic_weights') is not None
+control_label = "Synthetic Control" if use_synthetic else control_market
 
 # Extract metrics from CausalImpact
 inferences = ci.inferences
@@ -71,8 +73,21 @@ inc_revenue = inc_conversions * assumed_aov
 bounce_rate_pre = 0.45
 bounce_rate_post = np.clip(bounce_rate_pre - (pct_effect / 100) * 0.10, 0.20, 0.80)
 
-st.markdown(f"**Template:** {template['name']} | **Test:** {test_market} | **Control:** {control_market}")
+st.markdown(f"**Template:** {template['name']} | **Test:** {test_market} | **Control:** {control_label}")
 st.markdown("---")
+
+# Simple reader guide so non-analysts know what each block means
+st.info(
+    """
+    **How to read this page (plain English):**
+    - **Estimated Effect**: Total extra (or lost) sessions the change caused vs. what would have happened without it.
+    - **Avg Daily Impact**: The effect per day; handy for thinking about daily run-rate.
+    - **Statistical Sig. (z, p)**: Whether the lift is likely real vs. noise; smaller p is stronger evidence.
+    - **Recommendation**: Quick go/no-go based on size of lift and p-value; negative + significant = don't ship.
+    - **BI Snapshot**: Storytelling dollars from the lift using simple assumptions (3% CVR, $60 AOV); not finance-grade.
+    - **Validity Checks**: Trust meter—if pre-period match is weak or RMSE is high, treat the result with caution.
+    """
+)
 
 # ==============================================================================
 # SECTION A: KEY METRICS SUMMARY
@@ -433,7 +448,7 @@ def generate_pdf():
     elements.append(Paragraph("Executive Summary", heading_style))
     summary_text = f"""
     This report documents the causal impact analysis of the {template['name']} experiment conducted on 
-    the {test_market} market against the {control_market} control market over a {len(actual_post)}-day period.
+    the {test_market} market against the {control_label} control market over a {len(actual_post)}-day period.
     <br/><br/>
     <b>Key Finding:</b> The intervention resulted in an estimated <b>{point_est:+.0f}</b> sessions 
     ({pct_effect:+.1f}%) with a statistical significance of p={p_value:.4f}. 
@@ -497,5 +512,4 @@ with col1:
         st.switch_page("pages/4_📊_Causal_Analysis.py")
 
 with col3:
-    if st.button("Forward to Batch Runner →", use_container_width=True):
-        st.switch_page("pages/6_🚀_Batch_Runner.py")
+    st.button("Forward to Batch Runner →", use_container_width=True, disabled=True, help="Batch Runner is currently unavailable")

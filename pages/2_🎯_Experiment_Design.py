@@ -18,6 +18,8 @@ if 'pre_period_data' not in st.session_state:
     st.session_state['pre_period_data'] = None
 if 'synthetic_weights' not in st.session_state:
     st.session_state['synthetic_weights'] = None
+if 'control_markets_data_cached' not in st.session_state:
+    st.session_state['control_markets_data_cached'] = None
 
 st.title("🎯 Experiment Design & Power Calculation")
 
@@ -36,7 +38,25 @@ st.markdown("---")
 # Initialize tools
 matcher = MarketMatcher()
 power_calc = PowerCalculator()
-data_gen = StochasticSEOGenerator(seed=42)
+
+# ==============================================================================
+# GENERATE & CACHE CONTROL MARKET DATA (one-time on page load)
+# ==============================================================================
+
+if st.session_state['control_markets_data_cached'] is None:
+    with st.spinner("Generating control market data (one-time cache)..."):
+        # Use a fixed seed for reproducible control markets across page loads
+        data_gen = StochasticSEOGenerator(seed=42)
+        
+        control_markets_data = {}
+        for dma in matcher.get_dma_list():
+            baseline_other = data_gen.generate_baseline(n_days=90)
+            control_markets_data[dma], _ = data_gen.generate_control_market(baseline_other)
+        
+        # Cache in session state
+        st.session_state['control_markets_data_cached'] = control_markets_data
+else:
+    control_markets_data = st.session_state['control_markets_data_cached']
 
 # ==============================================================================
 # SECTION A: Market Selection & Matching
@@ -60,20 +80,17 @@ with col2:
     This is where the treatment effect will be injected.
     """)
 
-# Generate pre-period data for matching
-with st.spinner("Generating pre-period data..."):
+# Generate test market data (unique for each test market selection)
+with st.spinner("Generating test market data..."):
+    # Use test market name to generate unique but reproducible seed
+    test_market_seed = hash(test_market) % 10000
+    data_gen = StochasticSEOGenerator(seed=test_market_seed)
+    
     # Generate baseline data (90 days)
     baseline = data_gen.generate_baseline(n_days=90)
     
-    # Generate test and control markets
+    # Generate test market
     test_data, _ = data_gen.generate_control_market(baseline)
-    
-    # Generate other controls (all DMAs)
-    control_markets_data = {}
-    for dma in matcher.get_dma_list():
-        if dma != test_market:
-            baseline_other = data_gen.generate_baseline(n_days=90)
-            control_markets_data[dma], _ = data_gen.generate_control_market(baseline_other)
 
 # Market matching via Euclidean distance
 st.subheader("📊 Section 2: Find Best Control Markets")
@@ -91,9 +108,16 @@ selected_control = st.selectbox(
 )
 
 st.session_state['control_market'] = selected_control
+
+# Level-align control to test market mean (best practice for fair comparison)
+control_raw = control_markets_data[selected_control]
+test_mean = np.mean(test_data)
+control_mean = np.mean(control_raw)
+control_aligned = control_raw * (test_mean / control_mean) if control_mean != 0 else control_raw
+
 st.session_state['pre_period_data'] = {
     'test': test_data,
-    'control': control_markets_data[selected_control]
+    'control': control_aligned
 }
 
 # Show pre-period similarity
@@ -127,6 +151,14 @@ if use_synthetic:
         selected_controls=top_3_controls,
         alpha=1.0
     )
+    
+    # Level-align synthetic control to test market mean
+    synthetic_mean = np.mean(synthetic)
+    test_mean = np.mean(test_data)
+    synthetic_aligned = synthetic * (test_mean / synthetic_mean) if synthetic_mean != 0 else synthetic
+    
+    # Update session state with aligned synthetic control
+    st.session_state['pre_period_data']['control'] = synthetic_aligned
     
     st.session_state['synthetic_weights'] = sc_metadata
     
@@ -169,7 +201,56 @@ else:
 st.markdown("---")
 
 # ==============================================================================
-# SECTION C: Power Calculation
+# SECTION C: Pre-Period Time Series Preview
+# ==============================================================================
+
+st.subheader("📈 Section 4: Pre-Period Trend Similarity")
+
+# Determine which control series to plot: synthetic or single control
+if use_synthetic and 'synthetic_weights' in st.session_state and st.session_state['synthetic_weights']:
+    # Use the level-aligned synthetic control series from session state
+    control_series = st.session_state['pre_period_data']['control']
+    control_label = "Synthetic Control (Level-Aligned)"
+else:
+    # Use level-aligned single control
+    control_series = st.session_state['pre_period_data']['control']
+    control_label = "Control Market (Level-Aligned)"
+
+pre_df = pd.DataFrame({
+    'date': pd.date_range(start='2024-10-01', periods=len(test_data), freq='D'),
+    'test_market': test_data,
+    'control_market': control_series
+})
+
+fig_pre = go.Figure()
+fig_pre.add_trace(go.Scatter(
+    x=pre_df['date'],
+    y=pre_df['test_market'],
+    mode='lines',
+    name='Test Market',
+    line=dict(color='#1f77b4', width=2)
+))
+fig_pre.add_trace(go.Scatter(
+    x=pre_df['date'],
+    y=pre_df['control_market'],
+    mode='lines',
+    name=control_label,
+    line=dict(color='#ff7f0e', width=2)
+))
+fig_pre.update_layout(
+    title="Pre-Period Trend (90 Days)",
+    xaxis_title="Date",
+    yaxis_title="Metric Value",
+    height=350,
+    hovermode='x unified',
+    template='plotly_white'
+)
+st.plotly_chart(fig_pre, use_container_width=True)
+
+st.markdown("---")
+
+# ==============================================================================
+# SECTION D: Power Calculation
 # ==============================================================================
 
 st.subheader("📈 Section 4: Power & Duration Calculation")
@@ -224,6 +305,41 @@ calc_result = power_calc.calculate_required_duration(
 )
 
 required_days = calc_result['required_days']
+
+# Show calculation breakdown
+st.markdown("---")
+st.subheader("📐 Sample Size Calculation")
+
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.markdown("""
+    **Formula (Two-Sample T-Test):**
+    
+    $$n = \\frac{2 \\times (Z_\\alpha + Z_\\beta)^2 \\times \\sigma^2}{\\Delta^2}$$
+    
+    Where:
+    - n = required days
+    - Z_α, Z_β = critical values
+    - σ = baseline std dev
+    - Δ = absolute effect size
+    """)
+
+with col2:
+    st.markdown(f"""
+    **Your Calculation:**
+    
+    - **Z_α** (α={alpha}) = {calc_result['z_alpha']:.3f}
+    - **Z_β** (power={power:.0%}) = {calc_result['z_beta']:.3f}
+    - **σ** (baseline std) = {baseline_stats['baseline_std']:.1f}
+    - **Δ** (MDE) = {mde_pct}% × {baseline_stats['baseline_mean']:.0f} = {calc_result['delta_absolute']:.1f}
+    
+    ---
+    
+    $$n = \\frac{{2 \\times ({calc_result['z_alpha']:.3f} + {calc_result['z_beta']:.3f})^2 \\times {baseline_stats['baseline_std']:.1f}^2}}{{{calc_result['delta_absolute']:.1f}^2}}$$
+    
+    $$n = {required_days} \\text{{ days}}$$
+    """)
 
 st.success(f"**Required Duration: {required_days} days**")
 

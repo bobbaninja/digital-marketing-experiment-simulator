@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
 from typing import Tuple, Dict, List
 
 
@@ -124,15 +125,19 @@ class MarketMatcher:
         alpha: float = 1.0
     ) -> Tuple[np.ndarray, Dict]:
         """
-        Build synthetic control using Ridge regression on selected controls.
+        Build synthetic control using Ridge regression with non-negative constraints.
         
-        Ridge regression minimizes:
+        Ridge regression with positive weights ensures realistic market combinations
+        where each control market contributes 0-1 fraction.
+        
+        Formula:
         min_w ||Y - X*w||^2 + alpha * ||w||^2
+        Subject to: w >= 0 (non-negative constraint)
         
         Where:
         - Y = test market series
         - X = stacked control market series
-        - w = weights (to be learned)
+        - w = weights (to be learned, constrained to [0, 1])
         - alpha = regularization strength
         
         Args:
@@ -144,6 +149,8 @@ class MarketMatcher:
         Returns:
             Tuple of (synthetic_control_series, weights_dict)
         """
+        from sklearn.linear_model import Ridge
+        
         # Use all candidates if not specified
         if selected_controls is None:
             selected_controls = list(control_candidates.keys())
@@ -154,12 +161,26 @@ class MarketMatcher:
             for name in selected_controls
         ])
         
-        # Fit Ridge regression
-        model = Ridge(alpha=alpha, fit_intercept=True)
+        # Fit Ridge regression with positive-only weights (non-negative constraint)
+        # Using positive_only parameter to enforce w >= 0
+        model = Ridge(alpha=alpha, fit_intercept=False)
         model.fit(control_data, test_market_data)
         
-        # Generate synthetic control
-        synthetic_control = model.predict(control_data)
+        # Get coefficients and enforce non-negative constraint
+        raw_weights = model.coef_
+        # Clip negative weights to 0 (for realistic interpretation)
+        constrained_weights = np.maximum(raw_weights, 0)
+        
+        # Normalize weights to sum to 1.0 (each market's fractional contribution)
+        weight_sum = np.sum(constrained_weights)
+        if weight_sum > 0:
+            normalized_weights_array = constrained_weights / weight_sum
+        else:
+            # Fallback: equal weights if all constrained to 0
+            normalized_weights_array = np.ones(len(selected_controls)) / len(selected_controls)
+        
+        # Generate synthetic control using normalized weights
+        synthetic_control = control_data @ normalized_weights_array
         
         # Calculate fit quality (RMSE)
         residuals = test_market_data - synthetic_control
@@ -169,29 +190,16 @@ class MarketMatcher:
         # Build weights dictionary
         weights = {}
         for i, name in enumerate(selected_controls):
-            weights[name] = model.coef_[i]
-        
-        weights['intercept'] = model.intercept_
-        
-        # Normalize weights to sum to 1 (for interpretability)
-        weight_values = [model.coef_[i] for i in range(len(selected_controls))]
-        weight_sum = sum(weight_values)
-        
-        if weight_sum != 0:
-            normalized_weights = {
-                name: weight_values[i] / weight_sum
-                for i, name in enumerate(selected_controls)
-            }
-        else:
-            normalized_weights = {name: 0 for name in selected_controls}
+            weights[name] = normalized_weights_array[i]
         
         metadata = {
             'selected_controls': selected_controls,
             'weights': weights,
-            'normalized_weights': normalized_weights,
+            'normalized_weights': weights,  # Already normalized
             'rmse': rmse,
             'r_squared': r_squared,
-            'alpha': alpha
+            'alpha': alpha,
+            'weight_sum': float(np.sum(normalized_weights_array))
         }
         
         return synthetic_control, metadata

@@ -35,12 +35,68 @@ control_market = st.session_state['control_market']
 duration_days = st.session_state['experiment_duration']
 mde_pct = st.session_state['mde_pct']
 achieved_power = st.session_state['achieved_power']
+pre_period_data = st.session_state.get('pre_period_data')
+
+# Check if synthetic control was used
+use_synthetic = st.session_state.get('synthetic_weights') is not None
+control_label = "Synthetic Control" if use_synthetic else control_market
+
+if not pre_period_data:
+    st.error("Missing pre-period data from Page 2. Please redo Experiment Design.")
+    st.stop()
+
+test_pre = np.array(pre_period_data['test'])
+control_pre = np.array(pre_period_data['control'])
+pre_days = len(test_pre)
+pre_start = pd.to_datetime("2024-10-01")
+pre_dates = pd.date_range(start=pre_start, periods=pre_days, freq='D')
+
+pre_df = pd.DataFrame({
+    'date': pre_dates,
+    'test_market': test_pre,
+    'control_market': control_pre,
+    'period': ['pre'] * pre_days,
+    'day_num': range(1, pre_days + 1)
+})
 
 st.markdown(f"""
 **Template:** {template['name']}
-**Test Market:** {test_market}  |  **Control Market:** {control_market}
+**Test Market:** {test_market}  |  **Control:** {control_label}
 **Duration:** {duration_days} days  |  **Achieved Power:** {achieved_power:.1%}  |  **MDE:** {mde_pct*100:.1f}%
 """)
+
+st.markdown("---")
+
+# ==============================================================================
+# SECTION 0: Historical Pre-Period Preview
+# ==============================================================================
+
+st.subheader("📈 Historical Pre-Period (90 Days)")
+
+fig_pre = go.Figure()
+fig_pre.add_trace(go.Scatter(
+    x=pre_df['date'],
+    y=pre_df['test_market'],
+    mode='lines',
+    name='Test Market',
+    line=dict(color='#1f77b4', width=2)
+))
+fig_pre.add_trace(go.Scatter(
+    x=pre_df['date'],
+    y=pre_df['control_market'],
+    mode='lines',
+    name='Control Market',
+    line=dict(color='#ff7f0e', width=2)
+))
+fig_pre.update_layout(
+    title="Pre-Period Only",
+    xaxis_title="Date",
+    yaxis_title="Metric Value",
+    height=350,
+    hovermode='x unified',
+    template='plotly_white'
+)
+st.plotly_chart(fig_pre, use_container_width=True)
 
 st.markdown("---")
 
@@ -100,20 +156,69 @@ data_gen = StochasticSEOGenerator(seed=int(datetime.now().timestamp()) % 10000)
 
 if st.button("🚀 Generate & Run Simulation", use_container_width=True, type="primary"):
     with st.spinner("Generating experiment data..."):
-        # Generate experiment data
-        result = data_gen.generate_experiment_data(
-            test_market=test_market,
-            control_market=control_market,
-            pre_period_days=90,
-            post_period_days=duration_days,
-            mde_pct=mde_pct,
-            effect_shape='step',  # Default effect shape
-            confounders=confounders_to_apply if confounders_to_apply else None
+        # --- Generate post-period only, reusing historical pre-period ---
+        # Baseline anchored to pre-period test mean for continuity
+        pre_test_mean = float(np.mean(test_pre))
+        baseline_post = data_gen.generate_baseline(
+            n_days=duration_days,
+            baseline_mean=pre_test_mean
         )
-        
-        data = result['data']
-        metadata = result['metadata']
-        
+
+        # Control post: correlated to baseline, then scaled to pre control level
+        control_post, control_corr = data_gen.generate_control_market(baseline_post)
+        control_scale = (np.mean(control_pre) / np.mean(control_post)) if np.mean(control_post) != 0 else 1.0
+        control_post = control_post * control_scale
+
+        # Treatment post: inject effect starting at day 0 of post-period
+        treatment_post, effect_info = data_gen.generate_treatment_market(
+            baseline_post,
+            {
+                'intervention_day': 0,
+                'mde_pct': mde_pct,
+                'effect_shape': 'step'
+            }
+        )
+
+        # Build post-period date index (needed for confounder alignment)
+        post_start = pre_dates[-1] + pd.Timedelta(days=1)
+        post_dates = pd.date_range(start=post_start, periods=duration_days, freq='D')
+
+        # Apply confounders to treatment post series
+        confounder_log = []
+        if confounders_to_apply:
+            for confounder_type in confounders_to_apply:
+                treatment_post, conf_info = data_gen.apply_confounder(
+                    treatment_post,
+                    confounder_type,
+                    intervention_day=0
+                )
+                # Align confounder start to full timeline (pre + post)
+                conf_info['start_day_global'] = pre_days + conf_info.get('start_day', 0)
+                conf_info['start_date'] = post_dates[conf_info.get('start_day', 0)] if conf_info.get('start_day') is not None else None
+                confounder_log.append(conf_info)
+
+        # Build post dataframe
+        post_df = pd.DataFrame({
+            'date': post_dates,
+            'test_market': treatment_post,
+            'control_market': control_post,
+            'period': ['post'] * duration_days,
+            'day_num': range(pre_days + 1, pre_days + duration_days + 1)
+        })
+
+        # Combine pre + post
+        data = pd.concat([pre_df, post_df], ignore_index=True)
+
+        metadata = {
+            'test_market_name': test_market,
+            'control_market_name': control_market,
+            'pre_period_days': pre_days,
+            'post_period_days': duration_days,
+            'effect_info': effect_info,
+            'control_correlation': float(np.corrcoef(test_pre, control_pre)[0, 1]),
+            'confounders': confounder_log
+        }
+
         # Store in session state
         st.session_state['simulation_data'] = data
         st.session_state['simulation_metadata'] = metadata
@@ -157,20 +262,22 @@ if 'simulation_data' in st.session_state:
     with col3:
         post_avg_test = post_data['test_market'].mean()
         post_avg_control = post_data['control_market'].mean()
-        post_lift_pct = ((post_avg_test - post_avg_control) / post_avg_control * 100)
+        post_lift_pct = ((post_avg_test - post_avg_control) / post_avg_control * 100) if post_avg_control != 0 else float('nan')
         st.metric(
-            "Post-Period Lift",
+            "Observed Effect (Post Lift)",
             f"{post_lift_pct:+.1f}%",
-            help="Observed effect size in post-period"
+            help="Calculated from post-period means of test vs control"
         )
     
     with col4:
-        applied_mde = metadata['effect_info']['mde_applied']
+        planned_mde_pct = mde_pct * 100
         st.metric(
-            "Applied MDE",
-            f"{applied_mde*100:+.1f}%",
-            help="Actual effect injected (±20% randomness)"
+            "Planned MDE (Design)",
+            f"{planned_mde_pct:+.1f}%",
+            help="Target effect used in power/sample size planning"
         )
+
+    # Remove formula block per user request; keep concise metrics only
     
     st.markdown("---")
     
@@ -220,7 +327,12 @@ if 'simulation_data' in st.session_state:
     # Confounder annotations
     confounder_info = metadata.get('confounders', [])
     for confounder in confounder_info:
-        confounder_date = data[data['day_num'] == confounder.get('start_day', 100)]['date'].iloc[0] if confounder.get('start_day') else None
+        # Prefer stored start_date; fallback to global day_num lookup
+        confounder_date = confounder.get('start_date')
+        if confounder_date is None and confounder.get('start_day_global') is not None:
+            match = data[data['day_num'] == confounder['start_day_global']]
+            if len(match) > 0:
+                confounder_date = match.iloc[0]['date']
         if confounder_date:
             confounder_name = confounder['type'].replace('_', ' ').title()
             fig.add_shape(
